@@ -9,9 +9,9 @@ const app = express();
 const PORT = process.env.PORT || 6000;
 
 app.use(
-  cors({
-    origin: process.env.CLIENT_URL,
-  })
+  cors(
+    
+  )
 );
 
 app.use(bodyParser.json({ limit: "10mb" }));
