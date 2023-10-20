@@ -4,6 +4,15 @@ import authRouter from "./routes/auth.js";
 import dataRouter from "./routes/dataManagement.js";
 import leadRouter from "./routes/leads.js";
 import cors from "cors";
+import { db } from "../connect.js";
+
+// check database connection
+db.getConnection((err, connection) => {
+  if (err) throw err;
+  console.log("Connected to MySQL Database!");
+  connection.release();
+});
+
 
 const app = express();
 const PORT = process.env.PORT || 6000;
