@@ -68,8 +68,8 @@ export const getCounselors = (req, res) => {
 // submit lead data
 const dbQuery = promisify(db.query).bind(db);
 
-export const addLead = async (req, res) => {
-  const leadData = req.body; // Assuming the lead data is sent in the request body
+export const addLead = (req, res) => {
+  const leadData = req.body;
 
   // Validate leadData using your validation function
   const { error } = inputLeadValidation(leadData);
@@ -80,42 +80,53 @@ export const addLead = async (req, res) => {
       .json({ errors: error.details.map((detail) => detail.message) });
   }
 
-  try {
-    // Start the database transaction
-    await dbQuery("START TRANSACTION");
+  // Insert customer data into the 'customer' table
+  const customerQuery = `
+    INSERT INTO customer (nic, passport, name, email, address, school, gender, dob)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const customerValues = [
+    leadData.nic,
+    leadData.passport,
+    leadData.name,
+    leadData.email,
+    leadData.address,
+    leadData.school,
+    leadData.gender,
+    leadData.dob,
+  ];
 
-    // Insert customer data into the 'customer' table
-    const customerQuery = `
-      INSERT INTO customer (nic, passport, name, email, address, school, gender, dob)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const customerValues = [
-      leadData.nic,
-      leadData.passport,
-      leadData.name,
-      leadData.email,
-      leadData.address,
-      leadData.school,
-      leadData.gender,
-      leadData.dob,
-    ];
-
-    const customerResult = await dbQuery(customerQuery, customerValues);
+  db.query(customerQuery, customerValues, (customerError, customerResult) => {
+    if (customerError) {
+      console.log("Error inserting customer data:", customerError);
+      return res.status(500).json({ error: "Internal server error" });
+    }
 
     // Insert customer_contact data into the 'customer_contact' table
     const customerContactQuery = `
-    INSERT INTO customer_contact (contact_no, customerid)
-    VALUES (?, ?)
-`;
+      INSERT INTO customer_contact (contact_no, customerid)
+      VALUES (?, ?)
+    `;
 
     const contactNumbers = [leadData.contact1, leadData.contact2];
     const customerId = customerResult.insertId;
 
     for (const contactNumber of contactNumbers) {
       if (contactNumber !== null) {
-        // Check for null value
         const customerContactValues = [contactNumber, customerId];
-        await dbQuery(customerContactQuery, customerContactValues);
+        db.query(
+          customerContactQuery,
+          customerContactValues,
+          (contactError) => {
+            if (contactError) {
+              console.log(
+                "Error inserting customer contact data:",
+                contactError
+              );
+              return res.status(500).json({ error: "Internal server error" });
+            }
+          }
+        );
       }
     }
 
@@ -134,46 +145,43 @@ export const addLead = async (req, res) => {
       leadData.batch,
     ];
 
-    const leadsResult = await dbQuery(leadsQuery, leadsValues);
+    db.query(leadsQuery, leadsValues, (leadsError, leadsResult) => {
+      if (leadsError) {
+        console.log("Error inserting leads data:", leadsError);
+        return res.status(500).json({ error: "Internal server error" });
+      }
 
-    // Insert follow_up data into the 'follow_up' table
-    const followUpQuery = `
-      INSERT INTO follow_up (leadid, statusid, date, comment, duration)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-    const followUpValues = [
-      leadsResult.insertId,
-      leadData.status,
-      leadData.date,
-      leadData.comment,
-      leadData.duration,
-    ];
+      // Insert follow_up data into the 'follow_up' table
+      const followUpQuery = `
+        INSERT INTO follow_up (leadid, statusid, date, comment, duration)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      const followUpValues = [
+        leadsResult.insertId,
+        leadData.status,
+        leadData.date,
+        leadData.comment,
+        leadData.duration,
+      ];
 
-    await dbQuery(followUpQuery, followUpValues);
+      db.query(followUpQuery, followUpValues, (followUpError) => {
+        if (followUpError) {
+          console.log("Error inserting follow-up data:", followUpError);
+          return res.status(500).json({ error: "Internal server error" });
+        }
 
-    // Commit the transaction
-    await dbQuery("COMMIT");
-
-    // Transaction completed successfully, send response
-    res.status(200).json({ message: "Lead data inserted successfully" });
-  } catch (err) {
-    // If any error occurs, rollback the transaction
-    await dbQuery("ROLLBACK");
-
-    console.log("Error inserting data:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+        res.status(200).json({ message: "Lead data inserted successfully" });
+      });
+    });
+  });
 };
-
 // insert imported lead data
-export const addImportedLead = async (req, res) => {
+export const addImportedLead = (req, res) => {
   const leadDetailsArray = req.body; // Assuming an array of lead details is sent in the request body
 
   try {
-    // Start the database transaction
-    await dbQuery("START TRANSACTION");
-
     for (const leadDetails of leadDetailsArray) {
+      // Insert customer data into the 'customer' table
       const customerQuery = `
         INSERT INTO customer (name, email, address)
         VALUES (?, ?, ?)
@@ -184,67 +192,96 @@ export const addImportedLead = async (req, res) => {
         leadDetails.address,
       ];
 
-      const customerResult = await dbQuery(customerQuery, customerValues);
+      db.query(
+        customerQuery,
+        customerValues,
+        (customerError, customerResult) => {
+          if (customerError) {
+            console.log("Error inserting customer data:", customerError);
+            return res.status(500).json({ error: "Internal server error" });
+          }
 
-      // Insert customer_contact details into the 'customer_contact' table
-      const customerContactQuery = `
-        INSERT INTO customer_contact (contact_no, customerid)
-        VALUES (?, ?)
-      `;
+          // Insert customer_contact details into the 'customer_contact' table
+          const customerContactQuery = `
+          INSERT INTO customer_contact (contact_no, customerid)
+          VALUES (?, ?)
+        `;
 
-      const contactNumbers = [leadDetails.mobile1, leadDetails.mobile2];
-      const customerId = customerResult.insertId;
+          const contactNumbers = [leadDetails.mobile1, leadDetails.mobile2];
+          const customerId = customerResult.insertId;
 
-      for (const contactNumber of contactNumbers) {
-        if (contactNumber !== null) {
-          const customerContactValues = [contactNumber, customerId];
-          await dbQuery(customerContactQuery, customerContactValues);
+          for (const contactNumber of contactNumbers) {
+            if (contactNumber !== null) {
+              const customerContactValues = [contactNumber, customerId];
+              db.query(
+                customerContactQuery,
+                customerContactValues,
+                (contactError) => {
+                  if (contactError) {
+                    console.log(
+                      "Error inserting customer contact data:",
+                      contactError
+                    );
+                    return res
+                      .status(500)
+                      .json({ error: "Internal server error" });
+                  }
+                }
+              );
+            }
+          }
+
+          // Insert lead data into the 'leads' table
+          const leadsQuery = `
+          INSERT INTO leads (customerid, course_id, sourceid, userid)
+          VALUES (?, ?, ?, ?)
+        `;
+          const leadsValues = [
+            customerId,
+            leadDetails.course,
+            leadDetails.source,
+            leadDetails.assignto,
+          ];
+
+          db.query(leadsQuery, leadsValues, (leadsError, leadsResult) => {
+            if (leadsError) {
+              console.log("Error inserting leads data:", leadsError);
+              return res.status(500).json({ error: "Internal server error" });
+            }
+
+            // Insert follow_up data into the 'follow_up' table
+            const followUpQuery = `
+            INSERT INTO follow_up (leadid, statusid, date, comment)
+            VALUES (?, ?, ?, ?)
+          `;
+            const followUpValues = [
+              leadsResult.insertId,
+              leadDetails.status,
+              leadDetails.date,
+              leadDetails.comment,
+            ];
+
+            db.query(followUpQuery, followUpValues, (followUpError) => {
+              if (followUpError) {
+                console.log("Error inserting follow-up data:", followUpError);
+                return res.status(500).json({ error: "Internal server error" });
+              }
+            });
+          });
         }
-      }
-
-      const leadsQuery = `
-        INSERT INTO leads (customerid, course_id, sourceid, userid)
-        VALUES (?, ?, ?, ?)
-      `;
-      const leadsValues = [
-        customerId,
-        leadDetails.course,
-        leadDetails.source,
-        leadDetails.assignto,
-      ];
-
-      const leadsResult = await dbQuery(leadsQuery, leadsValues);
-
-      const followUpQuery = `
-        INSERT INTO follow_up (leadid, statusid, date, comment)
-        VALUES (?, ?, ?, ?)
-      `;
-      const followUpValues = [
-        leadsResult.insertId,
-        leadDetails.status,
-        leadDetails.date,
-        leadDetails.comment,
-      ];
-
-      await dbQuery(followUpQuery, followUpValues);
+      );
     }
-
-    // Commit the transaction
-    await dbQuery("COMMIT");
 
     // Transaction completed successfully, send response
     res.status(200).json({ message: "Lead data inserted successfully" });
   } catch (err) {
-    // If any error occurs, rollback the transaction
-    await dbQuery("ROLLBACK");
-
     console.log("Error inserting data:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
 // update lead data
-export const updateLead = async (req, res) => {
+export const updateLead = (req, res) => {
   const { leadId } = req.body;
   const { processedInputs } = req.body;
 
@@ -256,106 +293,113 @@ export const updateLead = async (req, res) => {
       .json({ errors: error.details.map((detail) => detail.message) });
   }
 
-  try {
-    // Start the database transaction
-    await dbQuery("START TRANSACTION");
+  // Update customer data in the 'customer' table
+  const customerUpdateQuery = `
+    UPDATE customer
+    SET nic = ?, passport = ?, name = ?, email = ?, address = ?, school = ?, gender = ?, dob = ?
+    WHERE id = (SELECT customerid FROM leads WHERE id = ?)
+  `;
+  const customerUpdateValues = [
+    processedInputs.nic,
+    processedInputs.passport,
+    processedInputs.name,
+    processedInputs.email,
+    processedInputs.address,
+    processedInputs.school,
+    processedInputs.gender,
+    processedInputs.dob,
+    leadId,
+  ];
 
-    // Update customer data in the 'customer' table
-    const customerUpdateQuery = `
-      UPDATE customer
-      SET nic = ?, passport = ?, name = ?, email = ?, address = ?, school = ?, gender = ?, dob = ?
-      WHERE id = (SELECT customerid FROM leads WHERE id = ?)
-    `;
-    const customerUpdateValues = [
-      processedInputs.nic,
-      processedInputs.passport,
-      processedInputs.name,
-      processedInputs.email,
-      processedInputs.address,
-      processedInputs.school,
-      processedInputs.gender,
-      processedInputs.dob,
-      leadId,
-    ];
+  db.query(customerUpdateQuery, customerUpdateValues, (customerUpdateError, customerResul) => {
+    if (customerUpdateError) {
+      console.log("Error updating customer data:", customerUpdateError);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      // Update customer_contact data in the 'customer_contact' table
+      const customerContactDeleteQuery = `
+        DELETE FROM customer_contact
+        WHERE customerid = (SELECT customerid FROM leads WHERE id = ?)
+      `;
 
-    console.log(customerUpdateValues);
+      db.query(customerContactDeleteQuery, [leadId], (customerContactDeleteError) => {
+        if (customerContactDeleteError) {
+          console.log("Error deleting customer contact data:", customerContactDeleteError);
+          res.status(500).json({ error: "Internal server error" });
+        } else {
+          // Insert customer_contact data into the 'customer_contact' table
+          const customerContactInsertQuery = `
+            INSERT INTO customer_contact (contact_no, customerid)
+            VALUES (?, ?)
+          `;
 
-    const customerResul = await dbQuery(
-      customerUpdateQuery,
-      customerUpdateValues
-    );
+          const contactNumbers = [processedInputs.mobile1, processedInputs.mobile2];
 
-    // Update customer_contact data in the 'customer_contact' table
-    const customerContactDeleteQuery = `
-      DELETE FROM customer_contact
-      WHERE customerid = (SELECT customerid FROM leads WHERE id = ?)
-    `;
+          for (const contactNumber of contactNumbers) {
+            if (contactNumber !== null) {
+              const customerContactValues = [contactNumber, leadId];
+              db.query(customerContactInsertQuery, customerContactValues, (contactInsertError) => {
+                if (contactInsertError) {
+                  console.log("Error inserting customer contact data:", contactInsertError);
+                  res.status(500).json({ error: "Internal server error" });
+                }
+              });
+            }
+          }
 
-    await dbQuery(customerContactDeleteQuery, [leadId]);
+          // Update lead data in the 'leads' table
+          const leadsUpdateQuery = `
+            UPDATE leads
+            SET scheduled_to = ?, course_id = ?, sourceid = ?, userid = ?, batchcode = ?
+            WHERE id = ?
+          `;
+          const leadsUpdateValues = [
+            processedInputs.scheduled_to,
+            processedInputs.course_id,
+            processedInputs.source_id,
+            processedInputs.userid,
+            processedInputs.batch_id,
+            leadId,
+          ];
 
-    // Insert customer_contact data into the 'customer_contact' table
+          db.query(leadsUpdateQuery, leadsUpdateValues, (leadsUpdateError) => {
+            if (leadsUpdateError) {
+              console.log("Error updating lead data:", leadsUpdateError);
+              res.status(500).json({ error: "Internal server error" });
+            } else {
+              // Insert follow_up data into the 'follow_up' table
+              const followUpInsertQuery = `
+                INSERT INTO follow_up (leadid, statusid, date, comment)
+                VALUES (?, ?, ?, ?)
+              `;
 
-    const customerContactInsertQuery = `
-    INSERT INTO customer_contact (contact_no, customerid)
-    VALUES (?, ?)
-`;
+              const followUpInsertValues = [
+                leadId,
+                processedInputs.fstatus,
+                processedInputs.fdate,
+                processedInputs.fcomment,
+              ];
 
-    const contactNumbers = [processedInputs.mobile1, processedInputs.mobile2];
-
-    for (const contactNumber of contactNumbers) {
-      if (contactNumber !== null) {
-        const customerContactValues = [contactNumber, leadId];
-        await dbQuery(customerContactInsertQuery, customerContactValues);
-      }
+              if (processedInputs.fstatus) {
+                db.query(followUpInsertQuery, followUpInsertValues, (followUpInsertError) => {
+                  if (followUpInsertError) {
+                    console.log("Error inserting follow-up data:", followUpInsertError);
+                    res.status(500).json({ error: "Internal server error" });
+                  } else {
+                    res.status(200).json({ message: "Lead data updated successfully" });
+                  }
+                });
+              } else {
+                res.status(200).json({ message: "Lead data updated successfully" });
+              }
+            }
+          });
+        }
+      });
     }
-
-    // Update lead data in the 'leads' table
-    const leadsUpdateQuery = `
-      UPDATE leads
-      SET scheduled_to = ?, course_id = ?, sourceid = ?, userid = ?, batchcode = ?
-      WHERE id = ?
-    `;
-    const leadsUpdateValues = [
-      processedInputs.scheduled_to,
-      processedInputs.course_id,
-      processedInputs.source_id,
-      processedInputs.userid,
-      processedInputs.batch_id,
-      leadId,
-    ];
-
-    await dbQuery(leadsUpdateQuery, leadsUpdateValues);
-
-    // Insert follow_up data into the 'follow_up' table
-    const followUpInsertQuery = `
-      INSERT INTO follow_up (leadid, statusid, date, comment)
-      VALUES (?, ?, ?, ?)
-    `;
-
-    const followUpInsertValues = [
-      leadId,
-      processedInputs.fstatus,
-      processedInputs.fdate,
-      processedInputs.fcomment,
-    ];
-
-    if (processedInputs.fstatus) {
-      await dbQuery(followUpInsertQuery, followUpInsertValues);
-    }
-
-    // Commit the transaction
-    await dbQuery("COMMIT");
-
-    // Transaction completed successfully, send response
-    res.status(200).json({ message: "Lead data updated successfully" });
-  } catch (err) {
-    // If any error occurs, rollback the transaction
-    await dbQuery("ROLLBACK");
-
-    console.log("Error updating data:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  });
 };
+
 
 export const getUsers = (req, res) => {
   db.query(
